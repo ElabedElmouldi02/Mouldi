@@ -6,3 +6,4 @@ requests
 apscheduler
 gunicorn
 fpdf
+waitress
