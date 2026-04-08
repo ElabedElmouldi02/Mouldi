@@ -105,4 +105,45 @@ async def ultra_stable_scan():
         if candidates:
             best = max(candidates, key=lambda x: x['score'])
             active_virtual_trades[best['sym']] = {
-                "entry_price": best['price'],
+                "entry_price": best['price'], 
+                "time": datetime.now().strftime("%H:%M")
+            }
+            send_telegram_msg(f"🎯 *رصد انفجار نوعي: {best['sym']}*\n📊 قوة الإشارة: `{best['score']}/4`\n💰 السعر: `{best['price']:.6f}`")
+
+        await monitor_trades()
+
+    except Exception as e:
+        # رسالة تبريد ذكية لا تظهر إلا عند الضرورة القصوى
+        print(f"Cooling down due to: {e}")
+
+async def monitor_trades():
+    if not active_virtual_trades: return
+    report = "📋 *متابعة الصفقات (وضع الجودة):*\n"
+    for sym, data in list(active_virtual_trades.items()):
+        try:
+            ticker = await EXCHANGE.fetch_ticker(sym)
+            pnl = ((ticker['last'] - data['entry_price']) / data['entry_price']) * 100
+            report += f"`{sym}`: {pnl:.2f}% {'🍏' if pnl>=0 else '🍎'}\n"
+        except: continue
+    send_telegram_msg(report)
+
+# ======================== 5. حلقة الاستدامة والربط ========================
+async def main_loop():
+    send_telegram_msg("🛡️ *تم تفعيل نظام الاستقرار V10.5*\nالوضع: تركيز على أفضل 30 عملة.\nالفريم: 15 دقيقة.")
+    while True:
+        try:
+            await ultra_stable_scan()
+            # المسح كل 20 دقيقة ليتوافق مع فريم 15 دقيقة ويحافظ على السيرفر
+            await asyncio.sleep(1200) 
+        except: 
+            await asyncio.sleep(60)
+
+app = Flask('')
+@app.route('/')
+def home(): return f"Stable Bot Active. Tracking {len(active_virtual_trades)} symbols."
+
+if __name__ == "__main__":
+    # دعم تلقائي لمنصات Railway و Render
+    port = int(os.environ.get("PORT", 8080))
+    threading.Thread(target=lambda: serve(app, host='0.0.0.0', port=port), daemon=True).start()
+    asyncio.run(main_loop())
