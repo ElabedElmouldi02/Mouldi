@@ -1,12 +1,11 @@
 import asyncio
 import ccxt.pro as ccxt
 import pandas as pd
-import pandas_ta as ta
 import requests
 import threading
 import os
+from datetime import datetime
 from flask import Flask
-from datetime import datetime, timedelta
 from waitress import serve
 
 # ======================== 1. الإعدادات ========================
@@ -17,7 +16,6 @@ INVESTMENT_PER_TRADE = 100
 TIMEFRAME = '15m'
 EXCHANGE = ccxt.binance({'enableRateLimit': True, 'options': {'defaultType': 'spot'}})
 
-# ذاكرة لتخزين العملات المرسلة مع وقت إرسالها
 sent_signals_tracker = {}
 
 def send_telegram_msg(msg):
@@ -26,30 +24,48 @@ def send_telegram_msg(msg):
         try: requests.post(url, json={"chat_id": chat_id, "text": msg, "parse_mode": "Markdown"}, timeout=10)
         except: pass
 
-# ======================== 2. محرك الفحص والفلترة ========================
+# ======================== 2. الحسابات الفنية (يدوياً) ========================
+
+def calculate_rsi(series, period=14):
+    """حساب مؤشر RSI يدوياً بدون مكتبات خارجية"""
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
 def get_score(df):
     try:
-        if len(df) < 25: return 0
-        df['rsi'] = ta.rsi(df['close'], length=14)
-        df['ema10'] = ta.ema(df['close'], length=10)
+        if len(df) < 30: return 0
+        
+        # حساب المؤشرات يدوياً باستخدام pandas
+        df['ema10'] = df['close'].ewm(span=10, adjust=False).mean()
+        df['rsi'] = calculate_rsi(df['close'])
         
         last = df.iloc[-1]
         score = 0
         
+        # شرط 1: السعر فوق المتوسط
         if last['close'] > last['ema10']: score += 2
+        
+        # شرط 2: انفجار السيولة (1.3 ضعف المتوسط)
         avg_vol = df['vol'].rolling(20).mean().iloc[-2]
         if last['vol'] > avg_vol * 1.3: score += 2
-        if last['close'] > df['open'].iloc[-1]: score += 1
         
-        # فلتر الأمان: لا تشترِ عند تشبع جنوني
-        if last['rsi'] > 82: score = 0
+        # شرط 3: شمعة إيجابية
+        if last['close'] > last['open']: score += 1
+        
+        # فلتر الأمان RSI
+        if last['rsi'] > 82 or last['rsi'] < 20: score = 0
             
         return score
     except: return 0
 
-async def weekly_stable_scan():
-    # تنظيف الذاكرة من الإشارات التي مر عليها أكثر من 6 ساعات
+# ======================== 3. المحرك التشغيلي ========================
+
+async def stable_scan_v12():
     current_time = datetime.now()
+    # تنظيف الذاكرة (6 ساعات)
     to_delete = [s for s, t in sent_signals_tracker.items() if (current_time - t).total_seconds() > 21600]
     for s in to_delete: del sent_signals_tracker[s]
 
@@ -62,10 +78,10 @@ async def weekly_stable_scan():
         
         candidates = []
         for sym in top_100:
-            if sym in sent_signals_tracker: continue # تخطي إذا أُرسلت مؤخراً
+            if sym in sent_signals_tracker: continue
             
             try:
-                bars = await EXCHANGE.fetch_ohlcv(sym, timeframe=TIMEFRAME, limit=40)
+                bars = await EXCHANGE.fetch_ohlcv(sym, timeframe=TIMEFRAME, limit=50)
                 df = pd.DataFrame(bars, columns=['ts','open','high','low','close','vol'])
                 score = get_score(df)
                 
@@ -80,29 +96,28 @@ async def weekly_stable_scan():
         for item in top_10:
             sent_signals_tracker[item['sym']] = datetime.now()
             qty = INVESTMENT_PER_TRADE / item['price']
-            msg = (f"🔔 *إشارة استراتيجية (توب 10)*\n"
-                   f"🗓 التاريخ: `{datetime.now().strftime('%Y-%m-%d')}`\n"
+            msg = (f"🛡️ *إشارة مستقرة (V12.1)*\n"
                    f"⏰ الوقت: `{datetime.now().strftime('%H:%M:%S')}`\n"
                    f"💎 العملة: `{item['sym']}`\n"
                    f"📊 القوة: `{item['score']}/5`\n"
-                   f"💵 دخول بـ: `100$` | الكمية: `{qty:.2f}`\n"
+                   f"💵 المبلغ: `100$` | الكمية: `{qty:.2f}`\n"
                    f"💰 السعر: `{item['price']:.6f}`")
             send_telegram_msg(msg)
 
     except Exception as e: print(f"Error: {e}")
 
 async def main_loop():
-    send_telegram_msg("🛠 *بدء وضع التشغيل المستمر لمدة أسبوع* (V12.0)\n📍 السيرفر: Amsterdam\n⚖️ إدارة المخاطر: مفعلة")
+    send_telegram_msg("✅ *تم تفعيل النسخة V12.1 بنجاح (بدون إضافات)*\n📍 السيرفر: Amsterdam\n🚀 البوت يبدأ المسح الآن...")
     while True:
         try:
-            await weekly_stable_scan()
-            await asyncio.sleep(900) # فحص كل 15 دقيقة (أفضل للاستمرار الطويل)
+            await stable_scan_v12()
+            await asyncio.sleep(900) 
         except: await asyncio.sleep(60)
 
-# ======================== 3. الويب ========================
+# ======================== 4. السيرفر ========================
 app = Flask('')
 @app.route('/')
-def home(): return "Stable Bot Running"
+def home(): return "Bot is Alive"
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
