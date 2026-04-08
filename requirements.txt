@@ -1,6 +1,6 @@
-flask
 ccxt
 pandas
-numpy
+pandas_ta
 requests
+flask
 waitress
