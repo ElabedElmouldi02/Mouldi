@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 # ⚙️ الإعدادات العامة (قابلة للتعديل بسهولة)
 # =========================================================
 TELEGRAM_TOKEN = "8716390236:AAEjPGJSYXN5FrqsuI845KhQoVzMfM_Suoo"
-TELEGRAM_CHAT_ID = "5067771509"
+TELEGRAM_CHAT_ID = "-1003692815602"
 
 LOG_DIR = "/tmp/trading_logs"
 DB_FILE = os.path.join(LOG_DIR, "empire_v26.db")
