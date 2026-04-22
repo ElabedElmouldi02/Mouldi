@@ -2,4 +2,6 @@ ccxt
 pandas
 requests
 flask
+numpy
+httpx
 waitress
